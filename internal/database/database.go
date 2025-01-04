@@ -9,6 +9,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/joho/godotenv/autoload"
 )
@@ -49,6 +52,19 @@ func New() Service {
 	if err != nil {
 		log.Fatal(err)
 	}
+	m, err := migrate.New(
+		"file://internal/database/migrations", // Replace with your migrations directory
+		connStr,
+	)
+	if err != nil {
+		log.Fatalf("Failed to create migrate instance: %v", err)
+	}
+
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		log.Fatalf("Migration failed: %v", err)
+	}
+
+	log.Println("Migrations applied successfully.")
 	dbInstance = &service{
 		db: db,
 	}
