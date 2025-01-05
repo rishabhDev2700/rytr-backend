@@ -58,16 +58,16 @@ func (s *FiberServer) healthHandler(c *fiber.Ctx) error {
 func (s *FiberServer) login(c *fiber.Ctx) error {
 	credentials := dto.LoginCredentials{}
 	if err := c.BodyParser(&credentials); err != nil {
-		return err
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid json body"})
 	}
 	repo := repositories.NewUserRepository(s.db.DB())
 	user, err := repo.GetByEmail(c.Context(), credentials.Email)
 	if err != nil {
-		return err
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "user not found"})
 	}
 	// Throws Unauthorized error
 	if !utils.CheckPasswordHash(credentials.Password, user.Password) {
-		return c.SendStatus(fiber.StatusUnauthorized)
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Invalid credentials"})
 	}
 
 	// Create the Claims
@@ -92,17 +92,18 @@ func (s *FiberServer) registerUser(c *fiber.Ctx) error {
 	user := models.User{}
 
 	if err := c.BodyParser(&user); err != nil {
-		return err
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid json body"})
 	}
 	var err error
 	user.Password, err = utils.HashPassword(user.Password)
 	if err != nil {
-		return err
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Error hashing password, max-length:64 characters"})
 	}
 	repo := repositories.NewUserRepository(s.db.DB())
 	err = repo.Create(c.Context(), &user)
 	if err != nil {
-		return err
+		return c.Status(fiber.StatusNotAcceptable).JSON(fiber.Map{"message": "User already exist"})
+
 	}
 	return c.JSON(fiber.Map{"message": "created user successfully"})
 
@@ -115,16 +116,17 @@ func (s *FiberServer) createCard(c *fiber.Ctx) error {
 	userRepo := repositories.NewUserRepository(s.db.DB())
 	currentUser, err := userRepo.GetByEmail(c.Context(), email)
 	if err != nil {
-		return err
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
 	}
 	cardRepo := repositories.NewCardRepository(s.db.DB())
 	card := models.Card{}
 	if err := c.BodyParser(&card); err != nil {
-		return err
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid json"})
+
 	}
 	card.UserID = currentUser.ID
 	if err := cardRepo.Create(c.Context(), &card); err != nil {
-		return err
+		return c.Status(fiber.StatusNotAcceptable).JSON(fiber.Map{"message": "This Card already exists"})
 	}
 	return c.JSON(fiber.Map{"message": "Card added successfully"})
 }
@@ -135,16 +137,20 @@ func (s *FiberServer) getSingleCard(c *fiber.Ctx) error {
 	email := claims["email"].(string)
 	userRepo := repositories.NewUserRepository(s.db.DB())
 	currentUser, err := userRepo.GetByEmail(c.Context(), email)
-	id := c.Params("id")
 	if err != nil {
-		return err
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
 	}
+	id := c.Params("id")
 	cardRepo := repositories.NewCardRepository(s.db.DB())
 	uid, err := uuid.Parse(id)
 	if err != nil {
-		return c.Status(fiber.ErrBadRequest.Code).JSON(fiber.Map{"message": "invalid uid"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "invalid uid"})
 	}
 	card, err := cardRepo.GetByID(c.Context(), uid, currentUser.ID)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Card not found"})
+
+	}
 	return c.JSON(fiber.Map{"card": card})
 }
 
@@ -155,12 +161,12 @@ func (s *FiberServer) getAllCards(c *fiber.Ctx) error {
 	userRepo := repositories.NewUserRepository(s.db.DB())
 	currentUser, err := userRepo.GetByEmail(c.Context(), email)
 	if err != nil {
-		return err
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
 	}
 	cardRepo := repositories.NewCardRepository(s.db.DB())
 	cards, err := cardRepo.GetAll(c.Context(), currentUser.ID)
 	if err != nil {
-		return err
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Unable to fetch cards"})
 	}
 	return c.JSON(fiber.Map{"cards": cards})
 }
@@ -172,12 +178,12 @@ func (s *FiberServer) getPendingCards(c *fiber.Ctx) error {
 	userRepo := repositories.NewUserRepository(s.db.DB())
 	currentUser, err := userRepo.GetByEmail(c.Context(), email)
 	if err != nil {
-		return err
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
 	}
 	cardRepo := repositories.NewCardRepository(s.db.DB())
 	cards, err := cardRepo.GetPending(c.Context(), currentUser.ID)
 	if err != nil {
-		return err
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "unable to fetch cards"})
 	}
 	return c.JSON(fiber.Map{"cards": cards})
 }
@@ -188,14 +194,12 @@ func (s *FiberServer) updateCard(c *fiber.Ctx) error {
 	email := claims["email"].(string)
 	userRepo := repositories.NewUserRepository(s.db.DB())
 	currentUser, err := userRepo.GetByEmail(c.Context(), email)
+	if err != nil {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
+	}
 	id := c.Params("id")
 	cardRepo := repositories.NewCardRepository(s.db.DB())
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "invalid card ID",
-		})
-	}
-	var card models.Card
+	var card = models.Card{}
 	if err := c.BodyParser(&card); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "invalid request body",
@@ -223,16 +227,16 @@ func (s *FiberServer) updateCardStatus(c *fiber.Ctx) error {
 	email := claims["email"].(string)
 	userRepo := repositories.NewUserRepository(s.db.DB())
 	currentUser, err := userRepo.GetByEmail(c.Context(), email)
-	id := c.Params("id")
 	if err != nil {
-		return err
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
 	}
-	cardRepo := repositories.NewCardRepository(s.db.DB())
+	id := c.Params("id")
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "invalid card ID",
 		})
 	}
+	cardRepo := repositories.NewCardRepository(s.db.DB())
 	var status dto.CardStatus
 	if err := c.BodyParser(&status); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -260,12 +264,10 @@ func (s *FiberServer) deleteCard(c *fiber.Ctx) error {
 	email := claims["email"].(string)
 	userRepo := repositories.NewUserRepository(s.db.DB())
 	currentUser, err := userRepo.GetByEmail(c.Context(), email)
-	id := c.Params("id")
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "invalid card ID",
-		})
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
 	}
+	id := c.Params("id")
 	uid, err := uuid.Parse(id)
 	if err != nil {
 		return c.Status(fiber.ErrBadRequest.Code).JSON(fiber.Map{"message": "invalid uid"})
@@ -290,12 +292,14 @@ func (s *FiberServer) createNote(c *fiber.Ctx) error {
 	userRepo := repositories.NewUserRepository(s.db.DB())
 	currentUser, err := userRepo.GetByEmail(c.Context(), email)
 	if err != nil {
-		return err
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
 	}
 	noteRepo := repositories.NewNoteRepository(s.db.DB())
 	note := models.Note{}
 	if err := c.BodyParser(&note); err != nil {
-		return err
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid request body",
+		})
 	}
 	note.UserID = currentUser.ID
 	if err := noteRepo.Create(c.Context(), &note); err != nil {
@@ -310,10 +314,10 @@ func (s *FiberServer) getSingleNote(c *fiber.Ctx) error {
 	email := claims["email"].(string)
 	userRepo := repositories.NewUserRepository(s.db.DB())
 	currentUser, err := userRepo.GetByEmail(c.Context(), email)
-	id := c.Params("id")
 	if err != nil {
-		return err
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
 	}
+	id := c.Params("id")
 	noteRepo := repositories.NewNoteRepository(s.db.DB())
 	uid, err := uuid.Parse(id)
 	if err != nil {
@@ -333,12 +337,12 @@ func (s *FiberServer) getAllNotes(c *fiber.Ctx) error {
 	userRepo := repositories.NewUserRepository(s.db.DB())
 	currentUser, err := userRepo.GetByEmail(c.Context(), email)
 	if err != nil {
-		return err
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
 	}
 	noteRepo := repositories.NewNoteRepository(s.db.DB())
 	notes, err := noteRepo.GetAll(c.Context(), currentUser.ID)
 	if err != nil {
-		return err
+		c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Unable to fetch user notes"})
 	}
 	return c.JSON(fiber.Map{"notes": notes, "user": currentUser})
 }
@@ -349,6 +353,9 @@ func (s *FiberServer) updateNote(c *fiber.Ctx) error {
 	email := claims["email"].(string)
 	userRepo := repositories.NewUserRepository(s.db.DB())
 	currentUser, err := userRepo.GetByEmail(c.Context(), email)
+	if err != nil {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
+	}
 	id := c.Params("id")
 	noteRepo := repositories.NewNoteRepository(s.db.DB())
 	var note = models.Note{}
@@ -382,17 +389,15 @@ func (s *FiberServer) deleteNote(c *fiber.Ctx) error {
 	email := claims["email"].(string)
 	userRepo := repositories.NewUserRepository(s.db.DB())
 	currentUser, err := userRepo.GetByEmail(c.Context(), email)
-	id := c.Params("id")
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "invalid note ID",
-		})
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
 	}
-	noteRepo := repositories.NewNoteRepository(s.db.DB())
+	id := c.Params("id")
 	uid, err := uuid.Parse(id)
 	if err != nil {
 		return c.Status(fiber.ErrBadRequest.Code).JSON(fiber.Map{"message": "invalid uid"})
 	}
+	noteRepo := repositories.NewNoteRepository(s.db.DB())
 	err = noteRepo.Delete(c.Context(), uid, currentUser.ID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
