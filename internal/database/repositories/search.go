@@ -23,7 +23,6 @@ func NewSearchRepository(db *sql.DB) SearchRepository {
 
 func (s *searchRepository) SearchQuery(ctx context.Context, query string, userID uuid.UUID) (*models.SearchResult, error) {
 	tsQuery := "to_tsquery('english', $1)"
-
 	notesQuery := `
    	SELECT id, title, content, created_at, updated_at, user_id
    	FROM notes
@@ -95,24 +94,23 @@ func (s *searchRepository) SearchQuery(ctx context.Context, query string, userID
 	if err := cardsRows.Err(); err != nil {
 		return &models.SearchResult{}, err
 	}
-
 	return &models.SearchResult{
 		Notes: notes,
 		Cards: cards,
 	}, nil
 }
 func formatTsQuery(query string) string {
-    // Split the query into words
-    words := strings.Fields(query)
-    
-    // Process each word
-    for i, word := range words {
-        // Escape special characters
-        word = strings.ReplaceAll(word, "'", "''")
-        // Add prefix matching
-        words[i] = word + ":*"
-    }
-    
-    // Join with & for AND operations
-    return strings.Join(words, " & ")
+	// Split the query into words
+	words := strings.Fields(query)
+
+	// Process each word
+	for i, word := range words {
+		// Escape special characters
+		word = strings.ReplaceAll(word, "'", "''")
+		// Add prefix matching
+		words[i] = word + ":*"
+	}
+
+	// Join with & for AND operations
+	return strings.Join(words, " & ")
 }

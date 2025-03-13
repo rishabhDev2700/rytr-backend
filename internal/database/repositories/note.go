@@ -56,14 +56,11 @@ func (r *noteRepository) GetAll(ctx context.Context, userID uuid.UUID, limit ...
 	var result *sql.Rows
 	var err error
 	if len(limit) > 0 && limit[0] > 0 {
-		query := `SELECT id, title, content, user_id, created_at,updated_at FROM notes where user_id = $1 ORDER BY updated_at DESC  LIMIT $2`
+		query := `SELECT id, title, content, user_id, created_at, updated_at FROM notes where user_id = $1 ORDER BY updated_at DESC LIMIT $2`
 		result, err = r.db.QueryContext(ctx, query, userID, limit[0])
-	} else{
-		query := `SELECT id, title, content, created_at, updated_at, user_id 
-             FROM notes 
-             WHERE user_id = $1 
-             ORDER BY updated_at DESC`
-   	result, err = r.db.QueryContext(ctx, query, userID)
+	} else {
+		query := `SELECT id, title, content, user_id, created_at, updated_at FROM notes WHERE user_id = $1 ORDER BY updated_at DESC`
+   		result, err = r.db.QueryContext(ctx, query, userID)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("error querying notes: %v", err)
@@ -89,7 +86,6 @@ func (r *noteRepository) GetAll(ctx context.Context, userID uuid.UUID, limit ...
 		return nil, fmt.Errorf("error iterating notes: %v", err)
 	}
 	return &notes, nil
-
 }
 
 func (r *noteRepository) Update(ctx context.Context, note *models.Note, userID uuid.UUID) error {
