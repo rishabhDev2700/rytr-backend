@@ -167,6 +167,10 @@ func (r *cardRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status 
 		return err
 	}
 	num, err := result.RowsAffected()
+	if err != nil {
+		fmt.Println("Error getting rows affected:", err)
+		return err
+	}
 	fmt.Println("Rows affected:", num)
 	return nil
 }

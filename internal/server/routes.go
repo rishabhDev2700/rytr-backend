@@ -49,6 +49,8 @@ func (s *FiberServer) RegisterFiberRoutes() {
 	s.App.Get("/notes/:id", s.getSingleNote)
 	s.App.Put("/notes/:id", s.updateNote)
 	s.App.Delete("/notes/:id", s.deleteNote)
+
+	s.App.Get(("/search"), s.searchData)
 }
 
 func (s *FiberServer) healthHandler(c *fiber.Ctx) error {
@@ -231,11 +233,6 @@ func (s *FiberServer) updateCardStatus(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
 	}
 	id := c.Params("id")
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "invalid card ID",
-		})
-	}
 	cardRepo := repositories.NewCardRepository(s.db.DB())
 	var status dto.CardStatus
 	if err := c.BodyParser(&status); err != nil {
@@ -339,8 +336,9 @@ func (s *FiberServer) getAllNotes(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
 	}
+	limit := c.QueryInt("limit")
 	noteRepo := repositories.NewNoteRepository(s.db.DB())
-	notes, err := noteRepo.GetAll(c.Context(), currentUser.ID)
+	notes, err := noteRepo.GetAll(c.Context(), currentUser.ID, limit)
 	if err != nil {
 		c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Unable to fetch user notes"})
 	}
@@ -408,4 +406,21 @@ func (s *FiberServer) deleteNote(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "note deleted successfully",
 	})
+}
+
+func (s *FiberServer) searchData(c *fiber.Ctx) error {
+	user := c.Locals("user").(*jwt.Token)
+	claims := user.Claims.(jwt.MapClaims)
+	email := claims["email"].(string)
+	userRepo := repositories.NewUserRepository(s.db.DB())
+	currentUser, err := userRepo.GetByEmail(c.Context(), email)
+	if err != nil {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
+	}
+	searchRepo := repositories.NewSearchRepository(s.db.DB())
+	data, err := searchRepo.SearchQuery(c.Context(), c.Query("q"), currentUser.ID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Unable to fetch cards"})
+	}
+	return c.JSON(fiber.Map{"results": data})
 }

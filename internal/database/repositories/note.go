@@ -13,7 +13,7 @@ import (
 type NoteRepository interface {
 	Create(ctx context.Context, Note *models.Note) error
 	GetByID(ctx context.Context, id uuid.UUID, userID uuid.UUID) (*models.Note, error)
-	GetAll(ctx context.Context, userID uuid.UUID) (*[]models.Note, error)
+	GetAll(ctx context.Context, userID uuid.UUID, limit ...int) (*[]models.Note, error)
 	Update(ctx context.Context, Note *models.Note, userID uuid.UUID) error
 	Delete(ctx context.Context, id uuid.UUID, userID uuid.UUID) error
 }
@@ -40,6 +40,7 @@ func (r *noteRepository) Create(ctx context.Context, note *models.Note) error {
 
 func (r *noteRepository) GetByID(ctx context.Context, id uuid.UUID, userID uuid.UUID) (*models.Note, error) {
 	note := models.Note{}
+	
 	query := `SELECT id, title, content, user_id, created_at, updated_at FROM notes WHERE id = $1 AND user_id = $2`
 	err := r.db.QueryRowContext(ctx, query, id, userID).Scan(&note.ID, &note.Title, &note.Content, &note.UserID, &note.CreatedAt, &note.UpdatedAt)
 	if err == sql.ErrNoRows {
@@ -51,9 +52,19 @@ func (r *noteRepository) GetByID(ctx context.Context, id uuid.UUID, userID uuid.
 	return &note, nil
 }
 
-func (r *noteRepository) GetAll(ctx context.Context, userID uuid.UUID) (*[]models.Note, error) {
-	query := `SELECT id, title, content, user_id, created_at,updated_at FROM notes where user_id = $1`
-	result, err := r.db.QueryContext(ctx, query, userID)
+func (r *noteRepository) GetAll(ctx context.Context, userID uuid.UUID, limit ...int) (*[]models.Note, error) {
+	var result *sql.Rows
+	var err error
+	if len(limit) > 0 && limit[0] > 0 {
+		query := `SELECT id, title, content, user_id, created_at,updated_at FROM notes where user_id = $1 ORDER BY updated_at DESC  LIMIT $2`
+		result, err = r.db.QueryContext(ctx, query, userID, limit[0])
+	} else{
+		query := `SELECT id, title, content, created_at, updated_at, user_id 
+             FROM notes 
+             WHERE user_id = $1 
+             ORDER BY updated_at DESC`
+   	result, err = r.db.QueryContext(ctx, query, userID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("error querying notes: %v", err)
 	}
