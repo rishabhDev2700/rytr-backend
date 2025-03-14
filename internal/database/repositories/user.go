@@ -69,6 +69,34 @@ func (r *userRepository) GetByEmail(ctx context.Context, email string) (*models.
 }
 
 func (r *userRepository) Update(ctx context.Context, user *models.User) error {
+	// Update the user in the database
+	query := `
+        UPDATE users 
+        SET first_name = $1, last_name = $2, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $3
+    `
+
+	result, err := r.db.ExecContext(
+		ctx,
+		query,
+		user.FirstName,
+		user.LastName,
+		user.ID,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to update user: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("error getting rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return errors.New("user not found")
+	}
+
 	return nil
 }
 

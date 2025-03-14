@@ -37,6 +37,8 @@ func (s *FiberServer) RegisterFiberRoutes() {
 	}))
 
 	s.App.Post("/reset-password", s.resetPassword)
+	s.App.Get("/profile", s.getUserProfile)
+	s.App.Put("/profile", s.updateUserProfile)
 
 	s.App.Post("/cards", s.createCard)
 	s.App.Get("/cards", s.getAllCards)
@@ -125,13 +127,12 @@ func (s *FiberServer) resetPassword(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
 	}
-
 	// Parse request body
 	var req dto.PasswordResetRequest
 	if err := c.BodyParser(&req); err != nil {
+		fmt.Println(err)
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid request body"})
 	}
-
 	// Validate request data
 	if req.OldPassword == "" || req.NewPassword == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Old password and new password are required"})
@@ -151,6 +152,73 @@ func (s *FiberServer) resetPassword(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{"message": "Password reset successful"})
 }
+
+func (s *FiberServer) getUserProfile(c *fiber.Ctx) error {
+	user := c.Locals("user").(*jwt.Token)
+	claims := user.Claims.(jwt.MapClaims)
+	email := claims["email"].(string)
+
+	userRepo := repositories.NewUserRepository(s.db.DB())
+	currentUser, err := userRepo.GetByEmail(c.Context(), email)
+	if err != nil {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
+	}
+
+	return c.JSON(fiber.Map{
+		"id":         currentUser.ID,
+		"email":      currentUser.Email,
+		"first_name": currentUser.FirstName,
+		"last_name":  currentUser.LastName,
+		"created_at": currentUser.CreatedAt,
+		"updated_at": currentUser.UpdatedAt,
+	})
+}
+
+func (s *FiberServer) updateUserProfile(c *fiber.Ctx) error {
+	user := c.Locals("user").(*jwt.Token)
+	claims := user.Claims.(jwt.MapClaims)
+	email := claims["email"].(string)
+
+	userRepo := repositories.NewUserRepository(s.db.DB())
+	currentUser, err := userRepo.GetByEmail(c.Context(), email)
+	if err != nil {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
+	}
+
+	var req dto.UpdateProfileRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid request body"})
+	}
+
+	if req.FirstName == "" || req.LastName == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "First name and last name are required"})
+	}
+
+	currentUser.FirstName = req.FirstName
+	currentUser.LastName = req.LastName
+
+	err = userRepo.Update(c.Context(), currentUser)
+	if err != nil {
+		if err.Error() == "user not found" {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "User not found"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to update profile"})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Profile updated successfully",
+		"user": fiber.Map{
+			"id":         currentUser.ID,
+			"email":      currentUser.Email,
+			"first_name": currentUser.FirstName,
+			"last_name":  currentUser.LastName,
+			"created_at": currentUser.CreatedAt,
+			"updated_at": currentUser.UpdatedAt,
+		},
+	})
+}
+
+// Card endpoints
 
 func (s *FiberServer) createCard(c *fiber.Ctx) error {
 	user := c.Locals("user").(*jwt.Token)
@@ -322,6 +390,8 @@ func (s *FiberServer) deleteCard(c *fiber.Ctx) error {
 		"message": "card deleted successfully",
 	})
 }
+
+// Notes endpoints
 
 func (s *FiberServer) createNote(c *fiber.Ctx) error {
 	user := c.Locals("user").(*jwt.Token)
