@@ -36,6 +36,8 @@ func (s *FiberServer) RegisterFiberRoutes() {
 		SigningKey: jwtware.SigningKey{Key: []byte("secret")},
 	}))
 
+	s.App.Post("/reset-password", s.resetPassword)
+
 	s.App.Post("/cards", s.createCard)
 	s.App.Get("/cards", s.getAllCards)
 	s.App.Get("/cards/pending", s.getPendingCards)
@@ -109,6 +111,45 @@ func (s *FiberServer) registerUser(c *fiber.Ctx) error {
 	}
 	return c.JSON(fiber.Map{"message": "created user successfully"})
 
+}
+
+func (s *FiberServer) resetPassword(c *fiber.Ctx) error {
+	// Get user from JWT token
+	user := c.Locals("user").(*jwt.Token)
+	claims := user.Claims.(jwt.MapClaims)
+	email := claims["email"].(string)
+
+	// Get user from database
+	userRepo := repositories.NewUserRepository(s.db.DB())
+	currentUser, err := userRepo.GetByEmail(c.Context(), email)
+	if err != nil {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
+	}
+
+	// Parse request body
+	var req dto.PasswordResetRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid request body"})
+	}
+
+	// Validate request data
+	if req.OldPassword == "" || req.NewPassword == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Old password and new password are required"})
+	}
+
+	// Call repository to reset password
+	err = userRepo.ResetPassword(c.Context(), currentUser.ID, req.OldPassword, req.NewPassword)
+	if err != nil {
+		if err.Error() == "user not found" {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "User not found"})
+		}
+		if err.Error() == "incorrect password" {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "Incorrect password"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to reset password"})
+	}
+
+	return c.JSON(fiber.Map{"message": "Password reset successful"})
 }
 
 func (s *FiberServer) createCard(c *fiber.Ctx) error {

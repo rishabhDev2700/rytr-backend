@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"rytr/internal/database/models"
+	"rytr/internal/utils"
 
 	"github.com/google/uuid"
 )
@@ -17,6 +18,7 @@ type UserRepository interface {
 	// have to be used later
 	Update(ctx context.Context, user *models.User) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	ResetPassword(ctx context.Context, userID uuid.UUID, oldPassword, newPassword string) error
 }
 
 type userRepository struct {
@@ -71,5 +73,49 @@ func (r *userRepository) Update(ctx context.Context, user *models.User) error {
 }
 
 func (r *userRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	return nil
+}
+
+func (r *userRepository) ResetPassword(ctx context.Context, userID uuid.UUID, oldPassword, newPassword string) error {
+	// First verify that the old password matches
+	var storedPasswordHash string
+	query := `SELECT password FROM users WHERE id = $1`
+
+	err := r.db.QueryRowContext(ctx, query, userID).Scan(&storedPasswordHash)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("user not found")
+		}
+		return fmt.Errorf("failed to retrieve user password: %w", err)
+	}
+
+	// Verify old password using the CheckPasswordHash utility
+	if !utils.CheckPasswordHash(oldPassword, storedPasswordHash) {
+		return errors.New("incorrect password")
+	}
+
+	// Hash the new password
+	hashedNewPassword, err := utils.HashPassword(newPassword)
+	if err != nil {
+		return fmt.Errorf("failed to hash new password: %w", err)
+	}
+
+	// Update to new password if old password is correct
+	updateQuery := `UPDATE users SET password = $1 WHERE id = $2`
+
+	result, err := r.db.ExecContext(ctx, updateQuery, hashedNewPassword, userID)
+	if err != nil {
+		return fmt.Errorf("failed to reset password: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("error getting rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return errors.New("password update failed")
+	}
+
 	return nil
 }
