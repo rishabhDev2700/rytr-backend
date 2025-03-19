@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"rytr/internal/database/dto"
 	"rytr/internal/database/models"
@@ -13,6 +14,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"google.golang.org/genai"
 )
 
 func bToMb(b uint64) uint64 {
@@ -31,9 +33,9 @@ func (s *FiberServer) RegisterFiberRoutes() {
 			bToMb(m.Alloc), bToMb(m.TotalAlloc), bToMb(m.Sys), m.NumGC)
 		return c.SendString(memoryInfo)
 	})
-
+	secret := os.Getenv("SECRET_KEY")
 	s.App.Use(jwtware.New(jwtware.Config{
-		SigningKey: jwtware.SigningKey{Key: []byte("secret")},
+		SigningKey: jwtware.SigningKey{Key: []byte(secret)},
 	}))
 
 	s.App.Post("/reset-password", s.resetPassword)
@@ -55,6 +57,8 @@ func (s *FiberServer) RegisterFiberRoutes() {
 	s.App.Delete("/notes/:id", s.deleteNote)
 
 	s.App.Get(("/search"), s.searchData)
+
+	s.App.Post("/gemini", s.geminiHandler)
 }
 
 func (s *FiberServer) healthHandler(c *fiber.Ctx) error {
@@ -86,7 +90,7 @@ func (s *FiberServer) login(c *fiber.Ctx) error {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
 	// Generate encoded token and send it as response.
-	t, err := token.SignedString([]byte("secret"))
+	t, err := token.SignedString([]byte(os.Getenv("SECRET_KEY")))
 	if err != nil {
 		return c.SendStatus(fiber.StatusInternalServerError)
 	}
@@ -534,4 +538,37 @@ func (s *FiberServer) searchData(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Unable to fetch cards"})
 	}
 	return c.JSON(fiber.Map{"results": data})
+}
+
+func (s *FiberServer) geminiHandler(c *fiber.Ctx) error {
+	user := c.Locals("user").(*jwt.Token)
+	claims := user.Claims.(jwt.MapClaims)
+	email := claims["email"].(string)
+	userRepo := repositories.NewUserRepository(s.db.DB())
+	_, err := userRepo.GetByEmail(c.Context(), email)
+	if err != nil {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Invalid user"})
+	}
+	var req dto.GeminiRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid request body"})
+	}
+
+	prompt := req.Prompt
+	var config *genai.GenerateContentConfig = &genai.GenerateContentConfig{Temperature: genai.Ptr[float32](0.5)}
+	response, err := s.geminiClient.Models.GenerateContent(
+		c.Context(),
+		"models/gemini-2.0-flash",
+		genai.Text(prompt),
+		config,
+	)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Gemini API error", "error": err.Error()})
+	}
+	if len(response.Candidates) > 0 && len(response.Candidates[0].Content.Parts) > 0 {
+		text, _ := response.Text()
+		return c.JSON(fiber.Map{"response": text})
+	}
+
+	return c.JSON(fiber.Map{"response": "No response from Gemini API"})
 }
