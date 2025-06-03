@@ -39,7 +39,7 @@ func New() *FiberServer {
 	server.geminiClient = client
 	server.App.Use(favicon.New())
 	server.App.Use(cors.New(cors.Config{
-		AllowOrigins: "http://localhost:5173, https://rytr.fuzzydevs.com", // Your React app's URL
+		AllowOrigins: "http://localhost:5173, https://rytr.fuzzydevs.com, https://rytr.therishabhdev.com", // Your React app's URL
 		AllowHeaders: "Origin, Content-Type, Accept, Authorization,X-Requested-With",
 		AllowMethods: "GET,POST,PUT,DELETE,OPTIONS",
 		// Optional: Enable preflight request caching
